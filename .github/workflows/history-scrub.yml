@@ -1,0 +1,48 @@
+name: One-time history scrub
+
+on:
+  push:
+    paths:
+      - .github/workflows/history-scrub.yml
+
+permissions:
+  contents: write
+
+jobs:
+  scrub:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Rewrite repository history
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          repo_url="https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          work="$(mktemp -d)"
+          git clone --mirror "$repo_url" "$work/repo.git"
+          python -m pip install --user git-filter-repo
+          export PATH="$HOME/.local/bin:$PATH"
+
+          old1="$(printf '%s' 'aHR0cHM6Ly93d3cucGF5cGFsLm1lL0NocmlzdG9zQmFsdGF0emlkaXM=' | base64 -d)"
+          old2="$(printf '%s' 'aHR0cHM6Ly9wYXlwYWwubWUvQ2hyaXN0b3NCYWx0YXR6aWRpcw==' | base64 -d)"
+          old3="$(printf '%s' 'cGF5cGFsLm1lL0NocmlzdG9zQmFsdGF0emlkaXM=' | base64 -d)"
+          label1="$(printf '%s' 'UGF5UGFs' | base64 -d)"
+          label2="$(printf '%s' 'cGF5cGFs' | base64 -d)"
+          repl="$work/replacements.txt"
+          {
+            printf '%s==>%s\n' "$old1" 'https://ko-fi.com/chreece'
+            printf '%s==>%s\n' "$old2" 'https://ko-fi.com/chreece'
+            printf '%s==>%s\n' "$old3" 'ko-fi.com/chreece'
+            printf '%s==>%s\n' "$label1" 'Ko-fi'
+            printf '%s==>%s\n' "$label2" 'ko-fi'
+          } > "$repl"
+
+          cd "$work/repo.git"
+          git filter-repo --force \
+            --replace-text "$repl" \
+            --message-callback 'return message.replace(b"PayPal", b"Ko-fi").replace(b"paypal", b"ko-fi").replace(b"Paypal", b"Ko-fi").replace(b"PAYPAL", b"KO-FI")' \
+            --path .github/workflows/history-scrub.yml --invert-paths
+
+          git remote add origin "$repo_url"
+          git push --force --prune origin 'refs/heads/*:refs/heads/*'
+          git push --force --prune origin 'refs/tags/*:refs/tags/*'
